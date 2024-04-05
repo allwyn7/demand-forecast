@@ -1,134 +1,123 @@
-import torch
-import torch.nn as nn
-import optuna
-from torch.utils.data import TensorDataset, DataLoader
-from torch.autograd import Variable
-import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split, KFold
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import ModelCheckpoint as tf_ModelCheckpoint
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
 
-class LSTMModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim):
-        super(LSTMModel, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
+# Load Data
+data = pd.read_csv('/Users/I527229/Documents/GitHub/demand-forecast/backend/Historical Product Demand.csv')
 
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, output_dim)
+# Handle missing values
+data.dropna(inplace=True)
 
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).to(device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).to(device)
-        out, (hn, cn) = self.lstm(x, (h0.detach(), c0.detach()))
-        out = self.fc(out[:, -1, :])
-        return out
-    
-def create_seq(data, seq_length):
-    xs = []
-    ys = []
+# Convert 'Date' to a numerical representation
+data['Date'] = pd.to_datetime(data['Date'])
+data['Date'] = (data['Date'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
-    for i in range(len(data)-seq_length-1):
-        x = data[i:(i+seq_length)]
-        y = data[i+seq_length]
-        xs.append(x)
-        ys.append(y)
-
-    return np.array(xs), np.array(ys)    
-
-data = pd.read_csv('C:/Users/allwy/Documents/GitHub/demand-forecast/backend/Historical Product Demand.csv')
+# Remove parentheses and convert 'Order_Demand' to numeric
+data['Order_Demand'] = data['Order_Demand'].str.replace('[\(\),]', '')
 data['Order_Demand'] = pd.to_numeric(data['Order_Demand'], errors='coerce')
-data = data.dropna()
-data = data['Order_Demand'].values.astype(float)
 
-scaler = MinMaxScaler(feature_range=(-1, 1))
-data = scaler.fit_transform(data .reshape(-1, 1))
+# Drop rows with NaN values in 'Order_Demand'
+data.dropna(subset=['Order_Demand'], inplace=True)
 
-seq_length = 5
-x, y = create_seq(data, seq_length)
+# Apply Label Encoding
+label_encoders = {}
+for col in ['Product_Code', 'Warehouse', 'Product_Category']:
+    le = LabelEncoder()
+    data[col] = le.fit_transform(data[col])
+    label_encoders[col] = le
 
-train_size = int(len(y) * 0.67)
-dataX = Variable(torch.Tensor(np.array(x)))
-dataY = Variable(torch.Tensor(np.array(y)))
-trainX = Variable(torch.Tensor(np.array(x[0:train_size])))
-trainY = Variable(torch.Tensor(np.array(y[0:train_size])))
-val_data_X = Variable(torch.Tensor(np.array(x[train_size:len(x)])))
-val_data_Y = Variable(torch.Tensor(np.array(y[train_size:len(y)])))
+# Save the encoders for future use
+joblib.dump(label_encoders, 'encoders.pkl')
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# Scale 'Order_Demand' using StandardScaler
+scaler = StandardScaler()
+data['Order_Demand'] = scaler.fit_transform(data[['Order_Demand']])
 
-def objective(trial):
-    input_dim = 1
-    output_dim = 1
-    hidden_dim = int(trial.suggest_float("hidden_dim", 16, 256, log=True))
-    num_layers = int(trial.suggest_int("num_layers", 1, 3))
-    num_epochs = int(trial.suggest_int("num_epochs", 50, 200))
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
+# Save the scaler for future use
+joblib.dump(scaler, 'scaler.pkl')
 
-    model = LSTMModel(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, output_dim=output_dim)
-    model = model.to(device)
+# Define X and y
+X = data.drop(columns=['Order_Demand']).values
+y = data['Order_Demand'].values
 
-    criterion = torch.nn.MSELoss(reduction='mean').to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+# Split the data into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    batch_size = 64
-    train_dataset = TensorDataset(trainX, trainY)
-    train_iterator = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+# Define EarlyStopping
+early_stopping = EarlyStopping(monitor='val_loss', patience=3)
 
-    for epoch in range(num_epochs):
-        model.train()
-        for i, (x_batch, y_batch) in enumerate(train_iterator):
-            current_batch_size = x_batch.size(0)
-            x_batch = x_batch.view([current_batch_size, -1, 1]).to(device)
-            y_batch = y_batch.to(device)
+# Define batch_sizes and epochs for grid search
+batch_sizes = [10, 20, 40, 60, 80, 100]
+epochs = [10, 50, 100]
 
-            optimizer.zero_grad()
-            outputs = model(x_batch)
-            loss = criterion(outputs, y_batch.view(-1,1))
-  
-            loss.backward()
-            optimizer.step()
+# Start grid search
+best_val_loss = float('inf')
+best_hps = None
 
-        torch.cuda.empty_cache()
+# Define cross validation
+kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 
-    model.eval()
-    valid_outputs = model(val_data_X.view([-1, seq_length, 1]).to(device))
-    val_loss = criterion(valid_outputs, val_data_Y.view([-1,1]).to(device))
+for batch_size in batch_sizes:
+    for epoch in epochs:
+        print(f"Trying batch_size = {batch_size}, epochs = {epoch}")
 
-    return val_loss.item()
+        # Cross validate
+        cv_scores = []
+        for train_indices, val_indices in kfold.split(X_train):
+            # Create a new model for each fold
+            model = Sequential()
+            model.add(LSTM(50, return_sequences=True, input_shape=(1, X_train.shape[1])))
+            model.add(LSTM(50, return_sequences=False))
+            model.add(Dense(25))
+            model.add(Dense(1))
+            model.compile(optimizer='adam', loss='mean_squared_error')
 
-study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=100)
+            # Make checkpoint for the best model
+            checkpoint = tf_ModelCheckpoint('lstm_model.keras', monitor='val_loss', verbose=1, save_best_only=True, mode='min')
 
-best_trial = study.best_trial
-print('Loss: {}'.format(best_trial.value))
-print("Best hyperparameters: {}".format(best_trial.params))
+            # Fit the model and evaluate
+            X_train_fold = X_train[train_indices].reshape(X_train[train_indices].shape[0], 1, X_train[train_indices].shape[1])
+            X_val_fold = X_train[val_indices].reshape(X_train[val_indices].shape[0], 1, X_train[val_indices].shape[1])
+            
+            history = model.fit(X_train_fold, y_train[train_indices],
+                                validation_data=(X_val_fold, y_train[val_indices]), epochs=epoch, batch_size=batch_size, callbacks=[early_stopping, checkpoint])
+            score = model.evaluate(X_val_fold, y_train[val_indices])
+            cv_scores.append(score)
 
-model = LSTMModel(input_dim=1, hidden_dim=int(best_trial.params["hidden_dim"]), num_layers=int(best_trial.params["num_layers"]), output_dim=1)
-model = model.to(device)
-criterion = torch.nn.MSELoss(reduction='mean').to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=best_trial.params["learning_rate"])
+        # Compute mean cross-validation score
+        mean_val_loss = np.mean(cv_scores)
+        print(f"Mean validation loss = {mean_val_loss}")
 
-num_epochs = best_trial.params["num_epochs"]
-batch_size = 64
-train_dataset = TensorDataset(trainX, trainY)
-train_iterator = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
- 
-for epoch in range(num_epochs):
-    model.train()
-    for i, (x_batch, y_batch) in enumerate(train_iterator):
-        current_batch_size = x_batch.size(0)
-        x_batch = x_batch.view([current_batch_size, -1, 1]).to(device)
-        y_batch = y_batch.to(device)
+        # Update best score and hyperparameters
+        if mean_val_loss < best_val_loss:
+            best_val_loss = mean_val_loss
+            best_hps = (batch_size, epoch)
+            best_model = model
 
-        optimizer.zero_grad()
-        outputs = model(x_batch)
-        loss = criterion(outputs, y_batch.view(-1,1))
-  
-        loss.backward()
-        optimizer.step()
+print(f"Best hyperparameters found: batch_size = {best_hps[0]}, epochs = {best_hps[1]}")
 
-    torch.cuda.empty_cache()
-    if epoch % 100 == 0:
-        print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch+1, num_epochs, loss.item()))
+# Save the model with best hyperparameters
+best_model.save('lstm_best_model.keras')
 
-torch.save(model.state_dict(), 'lstm_model.ckpt')
+# Save the history for future use
+joblib.dump(history.history, 'model_history.pkl')
+
+# Plotting the training and validation loss
+plt.figure(figsize=(10, 5))
+
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+
+plt.title('Model loss progress during training/validation')
+plt.ylabel('Mean Squared Error')
+plt.xlabel('Epoch number')
+plt.legend(loc='upper right')
+
+plt.show()

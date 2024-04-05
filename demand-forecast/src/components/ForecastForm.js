@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 const ForecastForm = ({ onSubmit }) => {
   const [productCode, setProductCode] = useState('');
   const [warehouse, setWarehouse] = useState('');
   const [productCategory, setProductCategory] = useState('');
   const [date, setDate] = useState('');
+  const [forecastData, setForecastData] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,11 +27,12 @@ const ForecastForm = ({ onSubmit }) => {
   
       const data = await response.json();
       console.log('Final forecasted results:', data);
+      setForecastData(data);
       onSubmit(data);
     } catch (error) {
       console.error('Error:', error);
     }
-  };  
+  };
 
   return (
     <div>
@@ -73,6 +76,22 @@ const ForecastForm = ({ onSubmit }) => {
         </label>
         <button type="submit">Submit</button>
       </form>
+      {/* <input type="text" readOnly value={forecastData.forecast} /> */}
+      {forecastData && (
+        <LineChart
+            width={500}
+            height={300}
+            data={forecastData}
+            margin={{top: 5, right: 30, left: 20, bottom: 5}}
+        >
+            <XAxis dataKey="name" />
+            <YAxis />
+            <CartesianGrid strokeDasharray="3 3" />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="pv" stroke="#8884d8" activeDot={{r: 8}} />
+        </LineChart>
+      )}
     </div>
   );
 };
