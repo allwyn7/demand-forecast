@@ -1,23 +1,30 @@
 import React, { useState } from 'react';
+import './ForecastForm.css';
 
 const ForecastForm = ({ onSubmit }) => {
-  const [productCode, setProductCode] = useState('');
-  const [warehouse, setWarehouse] = useState('');
-  const [productCategory, setProductCategory] = useState('');
-  const [date, setDate] = useState('');
+  const [input, setInput] = useState('');
   const [forecastData, setForecastData] = useState(null);
+
+  const handleDate = () => {
+    let dateObj = new Date();
+    let month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    let day = String(dateObj.getDate()).padStart(2, '0');
+    let year = dateObj.getFullYear();
+    return year + '-' + month + '-' + day;
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const formData = { Product_Code: productCode, Warehouse: warehouse, Product_Category: productCategory, Date: date };
+
+    const formData = { Prompt: input, Current_Date: handleDate() };
 
     try {
       const response = await fetch('http://127.0.0.1:5000/forecast', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
@@ -34,49 +41,25 @@ const ForecastForm = ({ onSubmit }) => {
   };
 
   return (
-    <div>
-      <h2>Demand Forecasting Form</h2>
-      <form onSubmit={handleSubmit}>
-        <label>
-          Product Code:
-          <input
-            type="text"
-            value={productCode}
-            onChange={(e) => setProductCode(e.target.value)}
+    <div className="container">
+      <h2 className="heading">Demand Forecasting Form</h2>
+      <form onSubmit={handleSubmit} className="form-control">
+        <label className="label">
+          Enter your prompt:
+          <textarea 
+            className="input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
             required
+            spellCheck="false"
           />
         </label>
-        <label>
-          Warehouse:
-          <input
-            type="text"
-            value={warehouse}
-            onChange={(e) => setWarehouse(e.target.value)}
-            
-          />
-        </label>
-        <label>
-          Product Category:
-          <input
-            type="text"
-            value={productCategory}
-            onChange={(e) => setProductCategory(e.target.value)}
-            
-          />
-        </label>
-        <label>
-          Date:
-          <input
-            type="text"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            required
-          />
-        </label>
-        <button type="submit">Submit</button>
+        <button type="submit" className="submit-btn">Submit</button>
       </form>
       {forecastData && (
-        <p>The forecast is: {Math.ceil(forecastData.forecast)}</p>
+        <div className="forecast">
+          <p>The ORDER DEMAND is: <span>{Math.ceil(forecastData.forecast)}</span></p>
+        </div>
       )}
     </div>
   );
