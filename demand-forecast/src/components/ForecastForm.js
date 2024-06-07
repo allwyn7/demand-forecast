@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 const ForecastForm = ({ onSubmit }) => {
   const [productCode, setProductCode] = useState('');
@@ -11,7 +10,7 @@ const ForecastForm = ({ onSubmit }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const formData = { Product_Code: productCode, Warehouse: warehouse, Product_Category: productCategory, Date: date };
-    
+
     try {
       const response = await fetch('http://127.0.0.1:5000/forecast', {
         method: 'POST',
@@ -20,11 +19,11 @@ const ForecastForm = ({ onSubmit }) => {
         },
         body: JSON.stringify(formData)
       });
-  
+
       if (!response.ok) {
         throw new Error('Failed to get forecast');
       }
-  
+
       const data = await response.json();
       console.log('Final forecasted results:', data);
       setForecastData(data);
@@ -53,7 +52,7 @@ const ForecastForm = ({ onSubmit }) => {
             type="text"
             value={warehouse}
             onChange={(e) => setWarehouse(e.target.value)}
-            required
+            
           />
         </label>
         <label>
@@ -62,7 +61,7 @@ const ForecastForm = ({ onSubmit }) => {
             type="text"
             value={productCategory}
             onChange={(e) => setProductCategory(e.target.value)}
-            required
+            
           />
         </label>
         <label>
@@ -76,21 +75,8 @@ const ForecastForm = ({ onSubmit }) => {
         </label>
         <button type="submit">Submit</button>
       </form>
-      {/* <input type="text" readOnly value={forecastData.forecast} /> */}
       {forecastData && (
-        <LineChart
-            width={500}
-            height={300}
-            data={forecastData}
-            margin={{top: 5, right: 30, left: 20, bottom: 5}}
-        >
-            <XAxis dataKey="name" />
-            <YAxis />
-            <CartesianGrid strokeDasharray="3 3" />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="pv" stroke="#8884d8" activeDot={{r: 8}} />
-        </LineChart>
+        <p>The forecast is: {Math.ceil(forecastData.forecast)}</p>
       )}
     </div>
   );

@@ -16,7 +16,7 @@ data = pd.read_csv('/Users/I527229/Documents/GitHub/demand-forecast/backend/Hist
 data.dropna(inplace=True)
 
 # Convert 'Date' to a numerical representation
-data['Date'] = pd.to_datetime(data['Date'])
+data['Date'] = pd.to_datetime(data['Date']) 
 data['Date'] = (data['Date'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
 # Remove parentheses and convert 'Order_Demand' to numeric
